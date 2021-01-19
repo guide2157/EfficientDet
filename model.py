@@ -10,13 +10,13 @@ import tensorflow as tf
 from tensorflow.keras import layers
 from tensorflow.keras import initializers
 from tensorflow.keras import models
+from efficientnet_keras import find_feature_layers, initialize_model
 from tfkeras import EfficientNetB0, EfficientNetB1, EfficientNetB2
 from tfkeras import EfficientNetB3, EfficientNetB4, EfficientNetB5, EfficientNetB6
 
-from layers import ClipBoxes, RegressBoxes, FilterDetections, wBiFPNAdd, BatchNormalization
+from layers import ClipBoxes, RegressBoxes, FilterDetections, wBiFPNAdd
 from initializers import PriorProbability
 from utils.anchors import anchors_for_shape
-import numpy as np
 
 w_bifpns = [64, 88, 112, 160, 224, 288, 384]
 d_bifpns = [3, 4, 5, 6, 7, 7, 8]
@@ -29,7 +29,7 @@ MOMENTUM = 0.997
 EPSILON = 1e-4
 
 
-def SeparableConvBlock(num_channels, kernel_size, strides, name, freeze_bn=False):
+def SeparableConvBlock(num_channels, kernel_size, strides, name):
     f1 = layers.SeparableConv2D(num_channels, kernel_size=kernel_size, strides=strides, padding='same',
                                 use_bias=True, name=f'{name}/conv')
     f2 = layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON, name=f'{name}/bn')
@@ -37,7 +37,7 @@ def SeparableConvBlock(num_channels, kernel_size, strides, name, freeze_bn=False
     return reduce(lambda f, g: lambda *args, **kwargs: g(f(*args, **kwargs)), (f1, f2))
 
 
-def ConvBlock(num_channels, kernel_size, strides, name, freeze_bn=False):
+def ConvBlock(num_channels, kernel_size, strides, name):
     f1 = layers.Conv2D(num_channels, kernel_size=kernel_size, strides=strides, padding='same',
                        use_bias=True, name='{}_conv'.format(name))
     f2 = layers.BatchNormalization(momentum=MOMENTUM, epsilon=EPSILON, name='{}_bn'.format(name))
@@ -46,7 +46,7 @@ def ConvBlock(num_channels, kernel_size, strides, name, freeze_bn=False):
     return reduce(lambda f, g: lambda *args, **kwargs: g(f(*args, **kwargs)), (f1, f2, f3))
 
 
-def build_wBiFPN(features, num_channels, id, freeze_bn=False):
+def build_wBiFPN(features, num_channels, id):
     if id == 0:
         _, _, C3, C4, C5 = features
         P3_in = C3
@@ -303,7 +303,8 @@ def build_BiFPN(features, num_channels, id, freeze_bn=False):
 
 
 class BoxNet(models.Model):
-    def __init__(self, width, depth, num_anchors=9, separable_conv=True, freeze_bn=False, detect_quadrangle=False, **kwargs):
+    def __init__(self, width, depth, num_anchors=9, separable_conv=True, detect_quadrangle=False,
+                 **kwargs):
         super(BoxNet, self).__init__(**kwargs)
         self.width = width
         self.depth = depth
@@ -344,20 +345,19 @@ class BoxNet(models.Model):
         self.reshape = layers.Reshape((-1, num_values))
         self.level = 0
 
-    def call(self, inputs, **kwargs):
-        feature, level = inputs
+    def __call__(self, shape, level):
+        inputs = tf.keras.Input(shape=tuple(shape[1:]))
         for i in range(self.depth):
-            feature = self.convs[i](feature)
-            feature = self.bns[i][self.level](feature)
-            feature = self.relu(feature)
-        outputs = self.head(feature)
+            features = self.convs[i](inputs)
+            features = self.bns[i][level](features)
+            features = self.relu(features)
+        outputs = self.head(features)
         outputs = self.reshape(outputs)
-        self.level += 1
-        return outputs
+        return tf.keras.Model(inputs=inputs, outputs=outputs, name=f"{self.name}_{level}")
 
 
 class ClassNet(models.Model):
-    def __init__(self, width, depth, num_classes=20, num_anchors=9, separable_conv=True, freeze_bn=False, **kwargs):
+    def __init__(self, width, depth, num_classes=20, num_anchors=9, separable_conv=True, **kwargs):
         super(ClassNet, self).__init__(**kwargs)
         self.width = width
         self.depth = depth
@@ -403,20 +403,18 @@ class ClassNet(models.Model):
         self.activation = layers.Activation('sigmoid')
         self.level = 0
 
-    def call(self, inputs, **kwargs):
-        feature, level = inputs
+    def __call__(self, shape, level):
+        inputs = tf.keras.Input(shape=tuple(shape[1:]))
         for i in range(self.depth):
-            feature = self.convs[i](feature)
-            feature = self.bns[i][self.level](feature)
-            feature = self.relu(feature)
-        outputs = self.head(feature)
+            features = self.convs[i](inputs)
+            features = self.bns[i][level](features)
+            features = self.relu(features)
+        outputs = self.head(features)
         outputs = self.reshape(outputs)
-        outputs = self.activation(outputs)
-        self.level += 1
-        return outputs
+        return tf.keras.Model(inputs=inputs, outputs=outputs, name=f"{self.name}_{level}")
 
 
-def efficientdet(phi, num_classes=20, num_anchors=9, weighted_bifpn=False, freeze_bn=False,
+def efficientdet(phi, backbone, weights='imagenet', num_classes=20, num_anchors=9, weighted_bifpn=False,
                  score_threshold=0.01, detect_quadrangle=False, anchor_parameters=None, separable_conv=True):
     assert phi in range(7)
     input_size = image_sizes[phi]
@@ -426,30 +424,33 @@ def efficientdet(phi, num_classes=20, num_anchors=9, weighted_bifpn=False, freez
     d_bifpn = d_bifpns[phi]
     w_head = w_bifpn
     d_head = d_heads[phi]
-    backbone_cls = backbones[phi]
-    features = backbone_cls(input_tensor=image_input, freeze_bn=freeze_bn)
+    backbone_model = initialize_model(backbone, image_input, weights=weights)
+    features = find_feature_layers(backbone_model)
     if weighted_bifpn:
         fpn_features = features
         for i in range(d_bifpn):
-            fpn_features = build_wBiFPN(fpn_features, w_bifpn, i, freeze_bn=freeze_bn)
+            fpn_features = build_wBiFPN(fpn_features, w_bifpn, i)
     else:
         fpn_features = features
         for i in range(d_bifpn):
-            fpn_features = build_BiFPN(fpn_features, w_bifpn, i, freeze_bn=freeze_bn)
-    box_net = BoxNet(w_head, d_head, num_anchors=num_anchors, separable_conv=separable_conv, freeze_bn=freeze_bn,
+            fpn_features = build_BiFPN(fpn_features, w_bifpn, i)
+    box_net = BoxNet(w_head, d_head, num_anchors=num_anchors, separable_conv=separable_conv,
                      detect_quadrangle=detect_quadrangle, name='box_net')
     class_net = ClassNet(w_head, d_head, num_classes=num_classes, num_anchors=num_anchors,
-                         separable_conv=separable_conv, freeze_bn=freeze_bn, name='class_net')
-    classification = [class_net([feature, i]) for i, feature in enumerate(fpn_features)]
+                         separable_conv=separable_conv, name='class_net')
+    # classification = [class_net([feature, i]) for i, feature in enumerate(fpn_features)]
+    classification = [class_net(feature.get_shape().as_list(), level)(feature) for level, feature in
+                      enumerate(fpn_features)]
     classification = layers.Concatenate(axis=1, name='classification')(classification)
-    regression = [box_net([feature, i]) for i, feature in enumerate(fpn_features)]
+    regression = [box_net(feature.get_shape().as_list(), level)(feature) for level, feature in enumerate(fpn_features)]
+    # regression = [box_net([feature, i]) for i, feature in enumerate(fpn_features)]
     regression = layers.Concatenate(axis=1, name='regression')(regression)
 
     model = models.Model(inputs=[image_input], outputs=[classification, regression], name='efficientdet')
 
     # apply predicted regression to anchors
     anchors = anchors_for_shape((input_size, input_size), anchor_params=anchor_parameters)
-    anchors_input = np.expand_dims(anchors, axis=0)
+    anchors_input = tf.expand_dims(anchors, axis=0)
     boxes = RegressBoxes(name='boxes')([anchors_input, regression[..., :4]])
     boxes = ClipBoxes(name='clipped_boxes')([image_input, boxes])
 

@@ -309,12 +309,14 @@ def main(args=None):
         os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 
     # K.set_session(get_session())
+    from tensorflow.keras.applications.efficientnet import EfficientNetB0
 
     model, prediction_model = efficientdet(args.phi,
+                                           backbone=EfficientNetB0,
+                                           weights='imagenet',
                                            num_classes=num_classes,
                                            num_anchors=num_anchors,
                                            weighted_bifpn=args.weighted_bifpn,
-                                           freeze_bn=args.freeze_bn,
                                            detect_quadrangle=args.detect_quadrangle
                                            )
     # load pretrained weights
