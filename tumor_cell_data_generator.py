@@ -223,15 +223,27 @@ class TumorCellGenerator(Generator):
         return targets[0].reshape((targets[0].shape[0], -1)), shape_target0, \
                targets[1].reshape((targets[1].shape[0], -1)), shape_target1
 
+    def compress_annotations(self, annotations_group):
+        bdbox_compressed = []
+        labels = []
+        for idx in range(len(annotations_group)):
+            bounding_box = annotations_group[idx]['bboxes']
+            label = annotations_group[idx]['labels']
+            bdbox_compressed.append(bounding_box.flatten())
+            labels.append(label)
+        return bdbox_compressed, labels
+
     def __getitem__(self, index):
         """
         Keras sequence method for generating batches.
         """
         group = self.groups[index]
-        inputs, targets = self.compute_inputs_targets(group)
+        inputs, targets, annotations_group = self.compute_inputs_targets(group, debug=True)
         indices = [self.image_dirs[idx].split("/")[-1].split(".")[0] for idx in group]
         comp_target1, target1_shape, comp_target2, target2_shape = self.compress_label(targets)
-        return inputs, comp_target1, target1_shape, comp_target2, target2_shape, indices
+        bdbox_compressed, labels = self.compress_annotations(annotations_group)
+        return inputs, comp_target1, target1_shape, comp_target2, target2_shape, indices, bdbox_compressed, labels
+        # return inputs, indices, bdbox_compressed, labels
 
 
 # Three types of data can be stored in TFRecords: bytestrings, integers and floats
@@ -250,13 +262,15 @@ def _float_feature(list_of_floats):  # float32
 
 
 def to_tfrecord(img, classification_target, classification_target_shape, regression_target, regression_target_shape,
-                index):
+                index, bdbox_compressed, label):
     feature = {
         "image": _bytestring_feature([img]),
         "classification_target": _float_feature(classification_target.tolist()),
         "classification_shape": _int_feature(list(classification_target_shape)),
         "regression_target": _float_feature(regression_target.tolist()),
         "regression_shape": _int_feature(list(regression_target_shape)),
+        "bounding_box": _float_feature(bdbox_compressed),
+        "labels": _int_feature(label),
         "index": _bytestring_feature([bytes(index, 'utf-8')]),
     }
     return tf.train.Example(features=tf.train.Features(feature=feature))
@@ -269,6 +283,8 @@ def read_tfrecord(example):
         "classification_shape": tf.io.VarLenFeature(tf.int64),
         "regression_target": tf.io.VarLenFeature(tf.float32),
         "regression_shape": tf.io.VarLenFeature(tf.int64),
+        "bounding_box": tf.io.VarLenFeature(tf.float32),
+        "labels": tf.io.VarLenFeature(tf.int64),
         "index": tf.io.FixedLenFeature([], tf.string),
     }
 
@@ -286,19 +302,22 @@ def read_tfrecord(example):
     regression_shape = tf.sparse.to_dense(example['regression_shape'])
     regression = tf.reshape(regression, regression_shape)
     image_index = example['index']
-    return image, classification, regression, image_index
+    bounding_boxes =tf.sparse.to_dense(example['bounding_box'])
+    # labels = example['labels']
+    bounding_boxes = tf.reshape(bounding_boxes, [-1, 4])
+    return image, classification, regression, image_index, bounding_boxes
 
 
 if __name__ == '__main__':
 
-    group = "test"
+    group = "val"
     seed = "10"
     dirs_dataframe = pd.read_csv(
-        "/Users/kittipodpungcharoenkul/Downloads/CTC_data/bounding_box/colon_data_split_seed_{}.csv".format(seed))
+        "/Users/kittipodpungcharoenkul/Downloads/CTC_data/bounding_box/bd_data_split_seed_{}.csv".format(seed))
 
     dirs_dataframe_selected = dirs_dataframe[dirs_dataframe['group'] == group]
 
-    xml_base_dir = "/Users/kittipodpungcharoenkul/Downloads/CTC_data/bounding_box/colon_annotation/"
+    xml_base_dir = "/Users/kittipodpungcharoenkul/Downloads/CTC_data/bounding_box/all_annotation/"
     xml_dirs = [os.path.join(xml_base_dir, filename + ".xml") for filename in dirs_dataframe_selected['filename']]
 
     image_base_dir = "/Users/kittipodpungcharoenkul/Downloads/CTC_data/"
@@ -314,9 +333,10 @@ if __name__ == '__main__':
         multiple=1
     )
 
-    for batch_inputs, comp_target1, target1_shape, comp_target2, target2_shape, indices in tqdm.tqdm(train_generator):
+    for batch_inputs, comp_target1, target1_shape, comp_target2, target2_shape, indices, bdbox_compressed, labels in tqdm.tqdm(
+            train_generator):
         filename = "/Users/kittipodpungcharoenkul/Downloads/" \
-                   "CTC_data/bounding_box/bbox_tfrecord/colon-output-seed{}-{}-{}.tfrec".format(
+                   "CTC_data/bounding_box/bbox_tfrecord/output-seed{}-{}-{}.tfrec".format(
             seed, group, len(batch_inputs))
         with tf.io.TFRecordWriter(filename) as out_file:
             for i in tqdm.tqdm(range(len(batch_inputs))):
@@ -325,54 +345,62 @@ if __name__ == '__main__':
                                       target1_shape,
                                       comp_target2[i],
                                       target2_shape,
-                                      indices[i])
+                                      indices[i],
+                                      bdbox_compressed[i],
+                                      labels[i])
                 out_file.write(example.SerializeToString())
-
-    option_no_order = tf.data.Options()
-    option_no_order.experimental_deterministic = False
-
-    filenames = tf.io.gfile.glob(
-        '/Users/kittipodpungcharoenkul/Downloads/CTC_data/bounding_box/bbox_tfrecord/colon-output*seed21*.tfrec')
-    train_dsr = tf.data.TFRecordDataset(filenames, num_parallel_reads=tf.data.experimental.AUTOTUNE)
-    train_dsr = train_dsr.with_options(option_no_order)
-    train_dsr = train_dsr.map(read_tfrecord, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-
-    test_data = list(train_generator)
     #
-    anchors = train_generator.anchors
+    # option_no_order = tf.data.Options()
+    # option_no_order.experimental_deterministic = False
     #
-    # for image, classification, regression, image_index in train_dsr.take(10):
+    # filenames = tf.io.gfile.glob(
+    #     '/Users/kittipodpungcharoenkul/Downloads/CTC_data/bounding_box/bbox_tfrecord/*.tfrec')
+    # train_dsr = tf.data.TFRecordDataset(filenames, num_parallel_reads=tf.data.experimental.AUTOTUNE)
+    # train_dsr = train_dsr.with_options(option_no_order)
+    # train_dsr = train_dsr.map(read_tfrecord, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    #
+    # test_data = list(train_generator)
+    # #
+    # anchors = train_generator.anchors
+    # #
+    # for image, classification, regression, image_index, bounding_boxes in train_dsr.take(10):
     #     classification = classification.numpy()
     #     regression = regression.numpy()
     #     image = image.numpy()
-    #     # plt.imshow(image)
-    #     # plt.show()
-    #     valid_ids = np.where(regression[:, -1] == 1)[0]
-    #     if valid_ids.shape[0] == 0:
-    #         continue
-    #     # print(valid_ids)
-    #     boxes = anchors[valid_ids]
-    #     deltas = regression[valid_ids]
-    #     class_ids = np.argmax(classification[valid_ids], axis=-1)
-    #     mean_ = [0, 0, 0, 0]
-    #     std_ = [0.2, 0.2, 0.2, 0.2]
+    #     bounding_boxes = bounding_boxes.numpy()
+    #     # valid_ids = np.where(regression[:, -1] == 1)[0]
+    #     # if valid_ids.shape[0] == 0:
+    #     #     continue
+    #     # # print(valid_ids)
+    #     # boxes = anchors[valid_ids]
+    #     # deltas = regression[valid_ids]
+    #     # class_ids = np.argmax(classification[valid_ids], axis=-1)
+    #     # mean_ = [0, 0, 0, 0]
+    #     # std_ = [0.2, 0.2, 0.2, 0.2]
+    #     #
+    #     # width = boxes[:, 2] - boxes[:, 0]
+    #     # height = boxes[:, 3] - boxes[:, 1]
+    #     #
+    #     # x1 = boxes[:, 0] + (deltas[:, 0] * std_[0] + mean_[0]) * width
+    #     # y1 = boxes[:, 1] + (deltas[:, 1] * std_[1] + mean_[1]) * height
+    #     # x2 = boxes[:, 2] + (deltas[:, 2] * std_[2] + mean_[2]) * width
+    #     # y2 = boxes[:, 3] + (deltas[:, 3] * std_[3] + mean_[3]) * height
     #
-    #     width = boxes[:, 2] - boxes[:, 0]
-    #     height = boxes[:, 3] - boxes[:, 1]
+    #     # for x1_, y1_, x2_, y2_, class_id in zip(x1, y1, x2, y2, class_ids):
+    #     #     x1_, y1_, x2_, y2_ = int(x1_), int(y1_), int(x2_), int(y2_)
+    #     #     start_point = (x1_, y1_)
+    #     #     end_point = (x2_, y2_)
+    #     #     cv2.rectangle(image, start_point, end_point, (0, 255, 0), 2)
+    #     #     class_name = train_generator.labels[class_id]
+    #     #     label = class_name
+    #     #     ret, baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.3, 1)
+    #     #     cv2.rectangle(image, (x1_, y2_ - ret[1] - baseline), (x1_ + ret[0], y2_), (255, 255, 255), -1)
+    #     #     cv2.putText(image, label, (x1_, y2_ - baseline), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
     #
-    #     x1 = boxes[:, 0] + (deltas[:, 0] * std_[0] + mean_[0]) * width
-    #     y1 = boxes[:, 1] + (deltas[:, 1] * std_[1] + mean_[1]) * height
-    #     x2 = boxes[:, 2] + (deltas[:, 2] * std_[2] + mean_[2]) * width
-    #     y2 = boxes[:, 3] + (deltas[:, 3] * std_[3] + mean_[3]) * height
-    #     for x1_, y1_, x2_, y2_, class_id in zip(x1, y1, x2, y2, class_ids):
+    #     for x1_, y1_, x2_, y2_ in bounding_boxes:
     #         x1_, y1_, x2_, y2_ = int(x1_), int(y1_), int(x2_), int(y2_)
     #         start_point = (x1_, y1_)
     #         end_point = (x2_, y2_)
     #         cv2.rectangle(image, start_point, end_point, (0, 255, 0), 2)
-    #         class_name = train_generator.labels[class_id]
-    #         label = class_name
-    #         ret, baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.3, 1)
-    #         cv2.rectangle(image, (x1_, y2_ - ret[1] - baseline), (x1_ + ret[0], y2_), (255, 255, 255), -1)
-    #         cv2.putText(image, label, (x1_, y2_ - baseline), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
     #     plt.imshow(image)
     #     plt.show()
