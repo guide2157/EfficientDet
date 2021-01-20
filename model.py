@@ -11,8 +11,8 @@ from tensorflow.keras import layers
 from tensorflow.keras import initializers
 from tensorflow.keras import models
 from efficientnet_keras import find_feature_layers, initialize_model
-from tfkeras import EfficientNetB0, EfficientNetB1, EfficientNetB2
-from tfkeras import EfficientNetB3, EfficientNetB4, EfficientNetB5, EfficientNetB6
+# from tfkeras import EfficientNetB0, EfficientNetB1, EfficientNetB2
+# from tfkeras import EfficientNetB3, EfficientNetB4, EfficientNetB5, EfficientNetB6
 
 from layers import ClipBoxes, RegressBoxes, FilterDetections, wBiFPNAdd
 from initializers import PriorProbability
@@ -22,8 +22,8 @@ w_bifpns = [64, 88, 112, 160, 224, 288, 384]
 d_bifpns = [3, 4, 5, 6, 7, 7, 8]
 d_heads = [3, 3, 3, 4, 4, 4, 5]
 image_sizes = [512, 640, 768, 896, 1024, 1280, 1408]
-backbones = [EfficientNetB0, EfficientNetB1, EfficientNetB2,
-             EfficientNetB3, EfficientNetB4, EfficientNetB5, EfficientNetB6]
+# backbones = [EfficientNetB0, EfficientNetB1, EfficientNetB2,
+#              EfficientNetB3, EfficientNetB4, EfficientNetB5, EfficientNetB6]
 
 MOMENTUM = 0.997
 EPSILON = 1e-4
@@ -345,15 +345,17 @@ class BoxNet(models.Model):
         self.reshape = layers.Reshape((-1, num_values))
         self.level = 0
 
-    def __call__(self, shape, level):
-        inputs = tf.keras.Input(shape=tuple(shape[1:]))
+    def call(self, inputs, **kwargs):
+        feature, level = inputs
         for i in range(self.depth):
-            features = self.convs[i](inputs)
-            features = self.bns[i][level](features)
-            features = self.relu(features)
-        outputs = self.head(features)
+            feature = self.convs[i](feature)
+            feature = self.bns[i][self.level](feature)
+            feature = self.relu(feature)
+        outputs = self.head(feature)
         outputs = self.reshape(outputs)
-        return tf.keras.Model(inputs=inputs, outputs=outputs, name=f"{self.name}_{level}")
+        outputs = self.activation(outputs)
+        self.level += 1
+        return outputs
 
 
 class ClassNet(models.Model):
@@ -403,15 +405,16 @@ class ClassNet(models.Model):
         self.activation = layers.Activation('sigmoid')
         self.level = 0
 
-    def __call__(self, shape, level):
-        inputs = tf.keras.Input(shape=tuple(shape[1:]))
+    def call(self, inputs, **kwargs):
+        feature, level = inputs
         for i in range(self.depth):
-            features = self.convs[i](inputs)
-            features = self.bns[i][level](features)
-            features = self.relu(features)
-        outputs = self.head(features)
+            feature = self.convs[i](feature)
+            feature = self.bns[i][self.level](feature)
+            feature = self.relu(feature)
+        outputs = self.head(feature)
         outputs = self.reshape(outputs)
-        return tf.keras.Model(inputs=inputs, outputs=outputs, name=f"{self.name}_{level}")
+        self.level += 1
+        return outputs
 
 
 def efficientdet(phi, backbone, weights='imagenet', num_classes=20, num_anchors=9, weighted_bifpn=False,
@@ -438,12 +441,12 @@ def efficientdet(phi, backbone, weights='imagenet', num_classes=20, num_anchors=
                      detect_quadrangle=detect_quadrangle, name='box_net')
     class_net = ClassNet(w_head, d_head, num_classes=num_classes, num_anchors=num_anchors,
                          separable_conv=separable_conv, name='class_net')
-    # classification = [class_net([feature, i]) for i, feature in enumerate(fpn_features)]
-    classification = [class_net(feature.get_shape().as_list(), level)(feature) for level, feature in
-                      enumerate(fpn_features)]
+    classification = [class_net([feature, i]) for i, feature in enumerate(fpn_features)]
+    # classification = [class_net(feature.get_shape().as_list(), level)(feature) for level, feature in
+    #                   enumerate(fpn_features)]
     classification = layers.Concatenate(axis=1, name='classification')(classification)
-    regression = [box_net(feature.get_shape().as_list(), level)(feature) for level, feature in enumerate(fpn_features)]
-    # regression = [box_net([feature, i]) for i, feature in enumerate(fpn_features)]
+    # regression = [box_net(feature.get_shape().as_list(), level)(feature) for level, feature in enumerate(fpn_features)]
+    regression = [box_net([feature, i]) for i, feature in enumerate(fpn_features)]
     regression = layers.Concatenate(axis=1, name='regression')(regression)
 
     model = models.Model(inputs=[image_input], outputs=[classification, regression], name='efficientdet')
