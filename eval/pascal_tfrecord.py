@@ -23,8 +23,9 @@ def _get_detections(generator, model):
     truths = []
     for image, bounding_boxes, labels in generator:
         boxes, scores, pred_labels = model.predict(image)
-        detections.append(np.hstack((boxes, pred_labels, scores)))
-        truths.append(np.hstack((bounding_boxes, labels)))
+        detections.append(
+            np.concatenate((boxes, np.expand_dims(pred_labels, axis=-1), np.expand_dims(scores, axis=-1)), axis=-1))
+        truths.append(np.concatenate((bounding_boxes, np.expand_dims(labels, axis=-1)), axis=-1))
     return truths, detections
 
 
