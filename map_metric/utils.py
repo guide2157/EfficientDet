@@ -119,9 +119,9 @@ def compute_match_table(preds, gt, img_id):
         match_table (pd.DataFrame)
     Input format:
         preds: [xmin, ymin, xmax, ymax, class_id, confidence]
-        gt: [xmin, ymin, xmax, ymax, class_id, difficult, crowd]
+        gt: [xmin, ymin, xmax, ymax, class_id]
     Output format:
-        match_table: [img_id, confidence, iou, difficult, crowd]
+        match_table: [img_id, confidence, iou]
     """
 
     def _tile(arr, nreps, axis=0):
@@ -135,12 +135,8 @@ def compute_match_table(preds, gt, img_id):
     match_table["confidence"] = preds[:, 5].tolist()
     if gt.shape[0] > 0:
         match_table["iou"] = compute_iou(preds, gt).tolist()
-        match_table["difficult"] = _tile(gt[:, 5], preds.shape[0], axis=0)
-        match_table["crowd"] = _tile(gt[:, 6], preds.shape[0], axis=0)
     else:
         match_table["iou"] = _empty_array_2d(preds.shape[0])
-        match_table["difficult"] = _empty_array_2d(preds.shape[0])
-        match_table["crowd"] = _empty_array_2d(preds.shape[0])
     return pd.DataFrame(match_table, columns=list(match_table.keys()))
 
 
@@ -152,24 +148,19 @@ def row_to_vars(row):
         img_id (int): image index.
         conf (flaot): confidence of predicted box.
         iou (np.array): iou between predicted box and gt boxes.
-        difficult (np.array): difficult of gt boxes.
-        crowd (np.array): crowd of gt boxes.
         order (np.array): sorted order of iou's.
     """
     img_id = row["img_id"]
     conf = row["confidence"]
     iou = np.array(row["iou"])
-    difficult = np.array(row["difficult"])
-    crowd = np.array(row["crowd"])
     order = np.argsort(iou)[::-1]
-    return img_id, conf, iou, difficult, crowd, order
+    return img_id, conf, iou, order
 
 
-def check_box(iou, difficult, crowd, order, matched_ind, iou_threshold, mpolicy="greedy"):
+def check_box(iou, order, matched_ind, iou_threshold, mpolicy="greedy"):
     """ Check box for tp/fp/ignore.
     Arguments:
         iou (np.array): iou between predicted box and gt boxes.
-        difficult (np.array): difficult of gt boxes.
         order (np.array): sorted order of iou's.
         matched_ind (list): matched gt indexes.
         iou_threshold (flaot): iou threshold.
@@ -184,18 +175,12 @@ def check_box(iou, difficult, crowd, order, matched_ind, iou_threshold, mpolicy=
         for i in range(n_check):
             idx = order[i]
             if iou[idx] > iou_threshold:
-                if not difficult[idx]:
-                    if idx not in matched_ind:
-                        result = ('tp', idx)
-                        break
-                    elif crowd[idx]:
-                        result = ('ignore', -1)
-                        break
-                    else:
-                        continue
-                else:
-                    result = ('ignore', -1)
+                if idx not in matched_ind:
+                    result = ('tp', idx)
                     break
+                else:
+                    continue
+
             else:
                 result = ('fp', -1)
                 break

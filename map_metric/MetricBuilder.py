@@ -42,7 +42,7 @@ class MeanAveragePrecision2d:
             gt (np.array): ground truth boxes.
         Input format:
             preds: [xmin, ymin, xmax, ymax, class_id, confidence]
-            gt: [xmin, ymin, xmax, ymax, class_id, difficult, crowd]
+            gt: [xmin, ymin, xmax, ymax, class_id]
         """
         assert preds.ndim == 2 and preds.shape[1] == 6
         assert gt.ndim == 2
@@ -133,13 +133,11 @@ class MeanAveragePrecision2d:
         tp = np.zeros(nd, dtype=np.float64)
         fp = np.zeros(nd, dtype=np.float64)
         for d in range(nd):
-            img_id, conf, iou, difficult, crowd, order = row_to_vars(table.iloc[d])
+            img_id, conf, iou, order = row_to_vars(table.iloc[d])
             if img_id not in matched_ind:
                 matched_ind[img_id] = []
             res, idx = check_box(
                 iou,
-                difficult,
-                crowd,
                 order,
                 matched_ind[img_id],
                 iou_threshold,
@@ -163,7 +161,7 @@ class MeanAveragePrecision2d:
         """ Initialize internal state."""
         self.imgs_counter = 0
         self.class_counter = np.zeros((0, self.num_classes), dtype=np.int32)
-        columns = ['img_id', 'confidence', 'iou', 'difficult', 'crowd']
+        columns = ['img_id', 'confidence', 'iou']
         self.match_table = []
         for i in range(self.num_classes):
             self.match_table.append(pd.DataFrame(columns=columns))
