@@ -436,6 +436,7 @@ class ClassNet:
             features = self.relu(features)
         outputs = self.head(features)
         outputs = self.reshape(outputs)
+        outputs = self.activation(outputs)
         return tf.keras.Model(inputs=inputs, outputs=outputs, name=f"{self.name}_{level}")
 
 
