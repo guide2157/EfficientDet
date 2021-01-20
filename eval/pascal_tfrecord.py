@@ -34,6 +34,7 @@ def _get_detections(generator, model):
 def evaluate(
         generator,
         model,
+        num_classes
 ):
     """
     Evaluate a given dataset using a given model.
@@ -49,7 +50,6 @@ def evaluate(
     # gather all detections and annotations
     truths, detections = \
         _get_detections(generator, model)
-    num_classes = np.shape(np.unique(detections[0][:, -2]))[0]
     map_metric = MeanAveragePrecision2d(num_classes)
     for i in range(len(truths)):
         map_metric.add(detections[i], truths[i])
@@ -66,6 +66,7 @@ class Evaluate(tfk.callbacks.Callback):
             self,
             tfrecord_generator,
             model,
+            num_classes,
             iou_threshold=0.5,
             max_detections=100,
             save_path=None,
@@ -93,6 +94,7 @@ class Evaluate(tfk.callbacks.Callback):
         self.weighted_average = weighted_average
         self.verbose = verbose
         self.active_model = model
+        self.num_classes = num_classes
 
         super(Evaluate, self).__init__()
 
@@ -103,6 +105,7 @@ class Evaluate(tfk.callbacks.Callback):
         self.mean_ap = evaluate(
             self.tfrecord_generator,
             self.active_model,
+            self.num_classes
         )
 
         if self.tensorboard is not None:
