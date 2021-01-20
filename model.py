@@ -302,15 +302,14 @@ def build_BiFPN(features, num_channels, id, freeze_bn=False):
     return P3_out, P4_td, P5_td, P6_td, P7_out
 
 
-class BoxNet(tf.keras.Model):
-    def __init__(self, width, depth, num_anchors=9, separable_conv=True, detect_quadrangle=False,
-                 **kwargs):
-        super(BoxNet, self).__init__(**kwargs)
+class BoxNet:
+    def __init__(self, width, depth, num_anchors=9, separable_conv=True, detect_quadrangle=False, name=""):
         self.width = width
         self.depth = depth
         self.num_anchors = num_anchors
         self.separable_conv = separable_conv
         self.detect_quadrangle = detect_quadrangle
+        self.name = name
         num_values = 9 if detect_quadrangle else 4
         options = {
             'kernel_size': 3,
@@ -345,36 +344,36 @@ class BoxNet(tf.keras.Model):
         self.reshape = layers.Reshape((-1, num_values))
         self.level = 0
 
-    def call(self, inputs, **kwargs):
-        feature, level = inputs
-        for i in range(self.depth):
-            feature = self.convs[i](feature)
-            feature = self.bns[i][self.level](feature)
-            feature = self.relu(feature)
-        outputs = self.head(feature)
-        outputs = self.reshape(outputs)
-        self.level += 1
-        return outputs
-
-    # def __call__(self, shape, level):
-    #     inputs = tf.keras.Input(shape=tuple(shape[1:]))
-    #     for i in range(self.depth):
-    #         features = self.convs[i](inputs)
-    #         features = self.bns[i][level](features)
-    #         features = self.relu(features)
-    #     outputs = self.head(features)
+    # def call(self, inputs, **kwargs):
+    #     feature, level = inputs
+    #     for i in tf.range(self.depth):
+    #         feature = self.convs[i](feature)
+    #         feature = self.bns[i][self.level](feature)
+    #         feature = self.relu(feature)
+    #     outputs = self.head(feature)
     #     outputs = self.reshape(outputs)
-    #     return tf.keras.Model(inputs=inputs, outputs=outputs, name=f"{self.name}_{level}")
+    #     self.level += 1
+    #     return outputs
+
+    def __call__(self, shape, level):
+        inputs = tf.keras.Input(shape=tuple(shape[1:]))
+        for i in range(self.depth):
+            features = self.convs[i](inputs)
+            features = self.bns[i][level](features)
+            features = self.relu(features)
+        outputs = self.head(features)
+        outputs = self.reshape(outputs)
+        return tf.keras.Model(inputs=inputs, outputs=outputs, name=f"{self.name}_{level}")
 
 
-class ClassNet(tf.keras.Model):
-    def __init__(self, width, depth, num_classes=20, num_anchors=9, separable_conv=True, **kwargs):
-        super(ClassNet, self).__init__(**kwargs)
+class ClassNet:
+    def __init__(self, width, depth, num_classes=20, num_anchors=9, separable_conv=True, name=""):
         self.width = width
         self.depth = depth
         self.num_classes = num_classes
         self.num_anchors = num_anchors
         self.separable_conv = separable_conv
+        self.name = name
         options = {
             'kernel_size': 3,
             'strides': 1,
@@ -414,28 +413,28 @@ class ClassNet(tf.keras.Model):
         self.activation = layers.Activation('sigmoid')
         self.level = 0
 
-    def call(self, inputs, **kwargs):
-        feature, level = inputs
-        for i in range(self.depth):
-            feature = self.convs[i](feature)
-            feature = self.bns[i][self.level](feature)
-            feature = self.relu(feature)
-        outputs = self.head(feature)
-        outputs = self.reshape(outputs)
-        outputs = self.activation(outputs)
-        self.level += 1
-        return outputs
-
-    # def __call__(self, shape, level):
-    #     inputs = tf.keras.Input(shape=tuple(shape[1:]))
-    #     for i in range(self.depth):
-    #         features = self.convs[i](inputs)
-    #         features = self.bns[i][level](features)
-    #         features = self.relu(features)
-    #     outputs = self.head(features)
+    # def call(self, inputs, **kwargs):
+    #     feature, level = inputs
+    #     for i in tf.range(self.depth):
+    #         feature = self.convs[i](feature)
+    #         feature = self.bns[i][self.level](feature)
+    #         feature = self.relu(feature)
+    #     outputs = self.head(feature)
     #     outputs = self.reshape(outputs)
     #     outputs = self.activation(outputs)
-    #     return tf.keras.Model(inputs=inputs, outputs=outputs, name=f"{self.name}_{level}")
+    #     self.level += 1
+    #     return outputs
+
+    def __call__(self, shape, level):
+        inputs = tf.keras.Input(shape=tuple(shape[1:]))
+        for i in range(self.depth):
+            features = self.convs[i](inputs)
+            features = self.bns[i][level](features)
+            features = self.relu(features)
+        outputs = self.head(features)
+        outputs = self.reshape(outputs)
+        outputs = self.activation(outputs)
+        return tf.keras.Model(inputs=inputs, outputs=outputs, name=f"{self.name}_{level}")
 
 
 def efficientdet(phi, backbone, weights='imagenet', num_classes=20, num_anchors=9, weighted_bifpn=False,
@@ -462,12 +461,13 @@ def efficientdet(phi, backbone, weights='imagenet', num_classes=20, num_anchors=
                      detect_quadrangle=detect_quadrangle, name='box_net')
     class_net = ClassNet(w_head, d_head, num_classes=num_classes, num_anchors=num_anchors,
                          separable_conv=separable_conv, name='class_net')
-    classification = [class_net([feature, i]) for i, feature in enumerate(fpn_features)]
-    # classification = [class_net(feature.get_shape().as_list(), level)(feature) for level, feature in
-    #                   enumerate(fpn_features)]
+
+    # classification = [class_net([feature, i]) for i, feature in enumerate(fpn_features)]
+    classification = [class_net(feature.get_shape().as_list(), level)(feature) for level, feature in
+                      enumerate(fpn_features)]
     classification = layers.Concatenate(axis=1, name='classification')(classification)
-    # regression = [box_net(feature.get_shape().as_list(), level)(feature) for level, feature in enumerate(fpn_features)]
-    regression = [box_net([feature, i]) for i, feature in enumerate(fpn_features)]
+    regression = [box_net(feature.get_shape().as_list(), level)(feature) for level, feature in enumerate(fpn_features)]
+    # regression = [box_net([feature, i]) for i, feature in enumerate(fpn_features)]
     regression = layers.Concatenate(axis=1, name='regression')(regression)
 
     model = models.Model(inputs=[image_input], outputs=[classification, regression], name='efficientdet')
@@ -475,7 +475,7 @@ def efficientdet(phi, backbone, weights='imagenet', num_classes=20, num_anchors=
     # apply predicted regression to anchors
     anchors = anchors_for_shape((input_size, input_size), anchor_params=anchor_parameters)
     anchors_input = tf.expand_dims(anchors, axis=0)
-    boxes = RegressBoxes(name='boxes')([anchors_input, regression[..., :4]])
+    boxes = RegressBoxes(name='boxes', anchors=anchors_input)(regression[..., :4])
     boxes = ClipBoxes(name='clipped_boxes')([image_input, boxes])
 
     # filter detections (apply NMS / score threshold / select top-k)

@@ -98,12 +98,12 @@ class ClipBoxes(keras.layers.Layer):
 
 
 class RegressBoxes(keras.layers.Layer):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, anchors, *args, **kwargs):
         super(RegressBoxes, self).__init__(*args, **kwargs)
+        self.anchors = anchors
 
     def call(self, inputs, **kwargs):
-        anchors, regression = inputs
-        return bbox_transform_inv(anchors, regression)
+        return bbox_transform_inv(self.anchors, inputs)
 
     def compute_output_shape(self, input_shape):
         return input_shape[0]
