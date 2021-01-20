@@ -45,7 +45,7 @@ class MeanAveragePrecision2d:
             gt: [xmin, ymin, xmax, ymax, class_id, difficult, crowd]
         """
         assert preds.ndim == 2 and preds.shape[1] == 6
-        assert gt.ndim == 2 and gt.shape[1] == 7
+        assert gt.ndim == 2
         class_counter = np.zeros((1, self.num_classes), dtype=np.int32)
         for c in range(self.num_classes):
             gt_c = gt[gt[:, 4] == c]
