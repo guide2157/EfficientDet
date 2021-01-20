@@ -31,8 +31,6 @@ def _get_detections(generator, model):
 def evaluate(
         generator,
         model,
-        iou_threshold=0.5,
-        max_detections=100
 ):
     """
     Evaluate a given dataset using a given model.
@@ -40,8 +38,6 @@ def evaluate(
     Args:
         generator: The generator that represents the dataset to evaluate.
         model: The model to evaluate.
-        iou_threshold: The threshold used to consider when a detection is positive or negative.
-        max_detections: The maximum number of detections to use per image.
 
     Returns:
         A dict mapping class names to mAP scores.
@@ -49,7 +45,7 @@ def evaluate(
     """
     # gather all detections and annotations
     truths, detections = \
-        _get_detections(generator, model, iou_threshold=iou_threshold, max_detections=max_detections)
+        _get_detections(generator, model)
     num_classes = np.shape(np.unique(detections[0][:, -2]))[0]
     map_metric = MeanAveragePrecision2d(num_classes)
     for i in range(len(truths)):
@@ -104,8 +100,6 @@ class Evaluate(tfk.callbacks.Callback):
         self.mean_ap = evaluate(
             self.tfrecord_generator,
             self.active_model,
-            iou_threshold=self.iou_threshold,
-            max_detections=self.max_detections
         )
 
         if self.tensorboard is not None:
