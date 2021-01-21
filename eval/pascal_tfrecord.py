@@ -67,6 +67,7 @@ class Evaluate(tfk.callbacks.Callback):
             tfrecord_generator,
             model,
             num_classes,
+            model_checkpoint_dir=None,
             iou_threshold=0.5,
             max_detections=100,
             save_path=None,
@@ -95,6 +96,7 @@ class Evaluate(tfk.callbacks.Callback):
         self.verbose = verbose
         self.active_model = model
         self.num_classes = num_classes
+        self.model_checkpoint_dir = model_checkpoint_dir
 
         super(Evaluate, self).__init__()
 
@@ -122,3 +124,7 @@ class Evaluate(tfk.callbacks.Callback):
 
         if self.verbose == 1:
             print('mAP: {:.4f}'.format(self.mean_ap))
+
+        if self.model_checkpoint_dir:
+            save_dir = self.model_checkpoint_dir.format(epoch=epoch, val_loss=logs['val_loss'], loss=logs['loss'])
+            self.model.save(save_dir, save_format="tf")

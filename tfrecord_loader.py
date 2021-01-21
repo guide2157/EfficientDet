@@ -7,16 +7,14 @@ from utils.anchors import anchors_for_shape, anchor_targets_bbox_tfdataset, Anch
 
 
 class CTCGenerator:
-    def __init__(self, num_classes, image_size, batch_size=4, training=False, test=False):
+    def __init__(self, num_classes, image_size, batch_size=4, training=False, test=False, anchor_parameters=None):
         super(CTCGenerator, self).__init__()
         self.batch_size = batch_size
         self.training = training
         self.test = test
         self.num_classes = num_classes
-        self.anchor_parameters = AnchorParameters(
-            ratios=(0.65, 1.),
-            sizes=(16, 32, 64, 128, 256),
-            scales=(1, 1.5))
+        if not anchor_parameters:
+            self.anchor_parameters = AnchorParameters.default
         self.anchors = anchors_for_shape((image_size, image_size), anchor_params=self.anchor_parameters)
 
     def compute_targets(self, images, bounding_boxes, labels):
@@ -64,7 +62,7 @@ class CTCGenerator:
             option_no_order = tf.data.Options()
             option_no_order.experimental_deterministic = False
             dataset = tf.data.TFRecordDataset(paths, num_parallel_reads=tf.data.experimental.AUTOTUNE) \
-                # .shuffle(100).with_options(option_no_order)
+                .shuffle(5000).with_options(option_no_order)
             dataset = dataset.map(self.read_tfrecord, num_parallel_calls=tf.data.experimental.AUTOTUNE)
             dataset = dataset.map(
                 lambda img, classification, regression: (self.augment_img(img), classification, regression),
@@ -80,7 +78,7 @@ if __name__ == '__main__':
     paths = [
         "/Users/kittipodpungcharoenkul/Documents/ChulaXrayProject/Tumor/EfficientDet/datasets/VOC2007/"
         "tfrecord/all-5011.tfrec"]
-    ctc_generator = CTCGenerator(num_classes=20, image_size=512, batch_size=1, training=True)
+    ctc_generator = CTCGenerator(num_classes=20, image_size=512, batch_size=5, training=True)
     train_generator = ctc_generator.generate_dataset(paths)
     anchors = ctc_generator.anchors
     # for image, overlap in train_generator:
