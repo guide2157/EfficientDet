@@ -114,27 +114,28 @@ def anchor_targets_bbox_tfdataset(
     target_labels = np.zeros((anchors.shape[0], num_classes + 1), dtype=np.float32)
 
     # compute labels and regression targets
-    positive_indices, ignore_indices, argmax_overlaps_inds = compute_gt_annotations_tfdataset(anchors,
+    if bounding_boxes.shape[0]:
+        positive_indices, ignore_indices, argmax_overlaps_inds = compute_gt_annotations_tfdataset(anchors,
                                                                                               bounding_boxes,
                                                                                               negative_overlap,
                                                                                               positive_overlap)
-    target_labels[ignore_indices, -1] = -1
-    target_labels[positive_indices, -1] = 1
+        target_labels[ignore_indices, -1] = -1
+        target_labels[positive_indices, -1] = 1
 
-    target_regression[ignore_indices, -1] = -1
-    target_regression[positive_indices, -1] = 1
+        target_regression[ignore_indices, -1] = -1
+        target_regression[positive_indices, -1] = 1
 
     # compute target class labels
-    target_labels[positive_indices, labels[argmax_overlaps_inds[positive_indices]].astype(int)] = 1
+        target_labels[positive_indices, labels[argmax_overlaps_inds[positive_indices]].astype(int)] = 1
 
-    target_regression[:, :4] = bbox_transform(anchors, bounding_boxes[argmax_overlaps_inds, :])
+        target_regression[:, :4] = bbox_transform(anchors, bounding_boxes[argmax_overlaps_inds, :])
 
-    # ignore anchors outside of image
-    anchors_centers = np.vstack([(anchors[:, 0] + anchors[:, 2]) / 2, (anchors[:, 1] + anchors[:, 3]) / 2]).T
-    indices = np.logical_or(anchors_centers[:, 0] >= image.shape[1], anchors_centers[:, 1] >= image.shape[0])
+        # ignore anchors outside of image
+        anchors_centers = np.vstack([(anchors[:, 0] + anchors[:, 2]) / 2, (anchors[:, 1] + anchors[:, 3]) / 2]).T
+        indices = np.logical_or(anchors_centers[:, 0] >= image.shape[1], anchors_centers[:, 1] >= image.shape[0])
 
-    target_labels[indices, -1] = -1
-    target_regression[indices, -1] = -1
+        target_labels[indices, -1] = -1
+        target_regression[indices, -1] = -1
 
     return target_labels, target_regression
 
