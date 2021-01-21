@@ -15,6 +15,8 @@ class CTCGenerator:
         self.num_classes = num_classes
         if not anchor_parameters:
             self.anchor_parameters = AnchorParameters.default
+        else:
+            self.anchor_parameters = anchor_parameters
         self.anchors = anchors_for_shape((image_size, image_size), anchor_params=self.anchor_parameters)
 
     def compute_targets(self, images, bounding_boxes, labels):
@@ -78,7 +80,12 @@ if __name__ == '__main__':
     paths = [
         "/Users/kittipodpungcharoenkul/Documents/ChulaXrayProject/Tumor/EfficientDet/datasets/VOC2007/"
         "tfrecord/all-5011.tfrec"]
-    ctc_generator = CTCGenerator(num_classes=20, image_size=512, batch_size=5, training=True)
+    ANCHORS_PARAMETERS = AnchorParameters(
+        ratios=(0.65, 1.),
+        sizes=(16, 32, 64, 128, 256),
+        scales=(1, 1.5))
+    ctc_generator = CTCGenerator(num_classes=20, image_size=512, batch_size=5, anchor_parameters=ANCHORS_PARAMETERS,
+                                 training=True)
     train_generator = ctc_generator.generate_dataset(paths)
     anchors = ctc_generator.anchors
     # for image, overlap in train_generator:
