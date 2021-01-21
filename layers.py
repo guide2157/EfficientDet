@@ -313,14 +313,14 @@ class FilterDetections(keras.layers.Layer):
             outputs = tf.map_fn(
                 _filter_detections,
                 elems=[boxes, classification, alphas, ratios],
-                dtype=['float32', 'float32', 'float32', 'float32', 'int32'],
+                fn_output_signature=['float32', 'float32', 'float32', 'float32', 'int32'],
                 parallel_iterations=self.parallel_iterations
             )
         else:
             outputs = tf.map_fn(
                 _filter_detections,
                 elems=[boxes, classification],
-                dtype=['float32', 'float32', 'int32'],
+                fn_output_signature=['float32', 'float32', 'int32'],
                 parallel_iterations=self.parallel_iterations
             )
 

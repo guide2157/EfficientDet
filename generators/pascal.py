@@ -218,7 +218,7 @@ class PascalVocGenerator(Generator):
 
 if __name__ == '__main__':
     train_generator = PascalVocGenerator(
-        'datasets/voc_trainval/VOC2007',
+        'datasets/VOC2007',
         'train',
         phi=0,
         skip_difficult=True,

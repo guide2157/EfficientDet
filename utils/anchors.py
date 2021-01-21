@@ -1,5 +1,6 @@
 # import keras
 import numpy as np
+import tensorflow as tf
 from tensorflow import keras
 
 from utils.compute_overlap import compute_overlap
@@ -39,6 +40,103 @@ AnchorParameters.default = AnchorParameters(
     ratios=np.array([1, 0.5, 2], keras.backend.floatx()),
     scales=np.array([2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)], keras.backend.floatx()),
 )
+
+
+def compute_overlap_tfdataset(
+        boxes,
+        query_boxes
+):
+    """
+    Args
+        a: (N, 4) ndarray of float
+        b: (K, 4) ndarray of float
+
+    Returns
+        overlaps: (N, K) ndarray of overlap between boxes and query_boxes
+    """
+    N = boxes.shape[0]
+    K = query_boxes.shape[0]
+    overlaps = np.zeros((N, K), dtype=np.float32)
+    for k in range(K):
+        box_area = (
+                (query_boxes[k, 2] - query_boxes[k, 0] + 1) *
+                (query_boxes[k, 3] - query_boxes[k, 1] + 1)
+        )
+        for n in range(N):
+            iw = (
+                    min(boxes[n, 2], query_boxes[k, 2]) -
+                    max(boxes[n, 0], query_boxes[k, 0]) + 1
+            )
+            if iw > 0:
+                ih = (
+                        min(boxes[n, 3], query_boxes[k, 3]) -
+                        max(boxes[n, 1], query_boxes[k, 1]) + 1
+                )
+                if ih > 0:
+                    ua = np.float64(
+                        (boxes[n, 2] - boxes[n, 0] + 1) *
+                        (boxes[n, 3] - boxes[n, 1] + 1) +
+                        box_area - iw * ih
+                    )
+                    overlaps[n, k] = iw * ih / ua
+    return overlaps
+
+
+def compute_gt_annotations_tfdataset(
+        anchors,
+        annotations,
+        negative_overlap=0.4,
+        positive_overlap=0.5
+):
+    # (N, K)
+    overlaps = compute_overlap_tfdataset(anchors, annotations)
+    # (N, )
+    argmax_overlaps_inds = np.argmax(overlaps, axis=-1)
+    # (N, )
+    max_overlaps = overlaps[np.arange(overlaps.shape[0]), argmax_overlaps_inds]
+    positive_indices = max_overlaps >= positive_overlap
+    ignore_indices = (max_overlaps > negative_overlap) & ~positive_indices
+    return positive_indices, ignore_indices, argmax_overlaps_inds
+
+
+def anchor_targets_bbox_tfdataset(
+        anchors,
+        image,
+        bounding_boxes,
+        labels,
+        num_classes,
+        negative_overlap=0.4,
+        positive_overlap=0.5
+):
+    # batch_size = images.shape[0]
+
+    target_regression = np.zeros((anchors.shape[0], 4 + 1), dtype=np.float32)
+    target_labels = np.zeros((anchors.shape[0], num_classes + 1), dtype=np.float32)
+
+    # compute labels and regression targets
+    positive_indices, ignore_indices, argmax_overlaps_inds = compute_gt_annotations_tfdataset(anchors,
+                                                                                              bounding_boxes,
+                                                                                              negative_overlap,
+                                                                                              positive_overlap)
+    target_labels[ignore_indices, -1] = -1
+    target_labels[positive_indices, -1] = 1
+
+    target_regression[ignore_indices, -1] = -1
+    target_regression[positive_indices, -1] = 1
+
+    # compute target class labels
+    target_labels[positive_indices, labels[argmax_overlaps_inds[positive_indices]].astype(int)] = 1
+
+    target_regression[:, :4] = bbox_transform(anchors, bounding_boxes[argmax_overlaps_inds, :])
+
+    # ignore anchors outside of image
+    anchors_centers = np.vstack([(anchors[:, 0] + anchors[:, 2]) / 2, (anchors[:, 1] + anchors[:, 3]) / 2]).T
+    indices = np.logical_or(anchors_centers[:, 0] >= image.shape[1], anchors_centers[:, 1] >= image.shape[0])
+
+    target_labels[indices, -1] = -1
+    target_regression[indices, -1] = -1
+
+    return target_labels, target_regression
 
 
 def anchor_targets_bbox(
