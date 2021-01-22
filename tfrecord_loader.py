@@ -44,10 +44,12 @@ class CTCGenerator:
 
         image = tf.io.decode_png(example['image'])
         image = tf.image.convert_image_dtype(image, dtype=tf.float32)
+        ratio = tf.cast(tf.shape(image)[0] / self.image_size, tf.float32)
         image = tf.image.resize(image, [self.image_size, self.image_size])
         bounding_boxes = tf.sparse.to_dense(example['bounding_box'])
         labels = tf.sparse.to_dense(example['labels'])
         bounding_boxes = tf.reshape(bounding_boxes, [-1, 4])
+        bounding_boxes = tf.math.divide(bounding_boxes, ratio)
         if self.test:
             return image, bounding_boxes, labels
 
@@ -80,14 +82,13 @@ class CTCGenerator:
 
 if __name__ == '__main__':
     paths = [
-        "/Users/kittipodpungcharoenkul/Documents/ChulaXrayProject/Tumor/EfficientDet/datasets/VOC2007/"
-        "tfrecord/all-5011.tfrec"]
+        "/Users/kittipodpungcharoenkul/Downloads/CTC_data/bounding_box/bbox_tfrecord/output-seed42-val-23.tfrec"]
     ANCHORS_PARAMETERS = AnchorParameters(
         ratios=(0.65, 1.),
         sizes=(16, 32, 64, 128, 256),
         scales=(1, 1.5))
-    ctc_generator = CTCGenerator(num_classes=20, image_size=512, batch_size=8, anchor_parameters=ANCHORS_PARAMETERS,
-                                 training=True)
+    ctc_generator = CTCGenerator(num_classes=1, image_size=512, batch_size=1, anchor_parameters=ANCHORS_PARAMETERS,
+                                 test=True)
     train_generator = ctc_generator.generate_dataset(paths)
     anchors = ctc_generator.anchors
     # for image, overlap in train_generator:
@@ -98,46 +99,46 @@ if __name__ == '__main__':
     #     ignore_indices = (max_overlaps > 0.5) & ~positive_indices
     #     plt.imshow(image[0].numpy())
 
-    for data in train_generator.take(15):
-        test = data
-    # for image, bounding_boxes, labels in train_generator:
-    # for image, classification, regression in train_generator:
-    #     classification = classification.numpy()[0]
-    #     regression = regression.numpy()[0]
-    #     # uniques = np.unique(regression[:, -1])
-    #
-    #     # targets = ctc_generator.compute_targets(image[0], bounding_boxes[0], labels[0])
-    #     # classification, regression = targets
-    #     image = image.numpy()[0]
-    #     #
-    #     valid_ids = np.array(np.where(regression[:, -1] == 1)).flatten()
-    #     if valid_ids.shape[0] == 0:
-    #         continue
-    #     #     # print(valid_ids)
-    #     boxes = anchors[valid_ids]
-    #     deltas = classification[valid_ids]
-    #     class_ids = np.argmax(regression[valid_ids], axis=-1)
-    #     mean_ = [0, 0, 0, 0]
-    #     std_ = [0.2, 0.2, 0.2, 0.2]
-    #
-    #     width = boxes[:, 2] - boxes[:, 0]
-    #     height = boxes[:, 3] - boxes[:, 1]
-    #
-    #     x1 = boxes[:, 0] + (deltas[:, 0] * std_[0] + mean_[0]) * width
-    #     y1 = boxes[:, 1] + (deltas[:, 1] * std_[1] + mean_[1]) * height
-    #     x2 = boxes[:, 2] + (deltas[:, 2] * std_[2] + mean_[2]) * width
-    #     y2 = boxes[:, 3] + (deltas[:, 3] * std_[3] + mean_[3]) * height
-    #
-    #     for x1_, y1_, x2_, y2_, class_id in zip(x1, y1, x2, y2, class_ids):
-    #         x1_, y1_, x2_, y2_ = int(x1_), int(y1_), int(x2_), int(y2_)
-    #         start_point = (x1_, y1_)
-    #         end_point = (x2_, y2_)
-    #         cv2.rectangle(image, start_point, end_point, (0, 255, 0), 2)
-    # for x1_, y1_, x2_, y2_ in bounding_boxes:
-    #     x1_, y1_, x2_, y2_ = int(x1_), int(y1_), int(x2_), int(y2_)
-    #     start_point = (x1_, y1_)
-    #     end_point = (x2_, y2_)
-    #     cv2.rectangle(image, start_point, end_point, (0, 255, 0), 2)
-    # plt.imshow(image)
-    # plt.show()
-    print("hi")
+    # for data in train_generator.take(15):
+    #     test = data
+    for image, bounding_boxes, labels in train_generator:
+        # for image, classification, regression in train_generator:
+        #     classification = classification.numpy()[0]
+        #     regression = regression.numpy()[0]
+
+        # targets = ctc_generator.compute_targets(image[0], bounding_boxes[0], labels[0])
+        # classification, regression = targets
+        image = image.numpy()[0]
+        #
+        # valid_ids = np.array(np.where(regression[:, -1] == 1)).flatten()
+        # if valid_ids.shape[0] == 0:
+        #     continue
+        #
+        # boxes = anchors[valid_ids]
+        # deltas = regression[valid_ids]
+        # class_ids = np.argmax(regression[valid_ids], axis=-1)
+        # mean_ = [0, 0, 0, 0]
+        # std_ = [0.2, 0.2, 0.2, 0.2]
+        #
+        # width = boxes[:, 2] - boxes[:, 0]
+        # height = boxes[:, 3] - boxes[:, 1]
+        #
+        # x1 = boxes[:, 0] + (deltas[:, 0] * std_[0] + mean_[0]) * width
+        # y1 = boxes[:, 1] + (deltas[:, 1] * std_[1] + mean_[1]) * height
+        # x2 = boxes[:, 2] + (deltas[:, 2] * std_[2] + mean_[2]) * width
+        # y2 = boxes[:, 3] + (deltas[:, 3] * std_[3] + mean_[3]) * height
+        #
+        # for x1_, y1_, x2_, y2_, class_id in zip(x1, y1, x2, y2, class_ids):
+        #     x1_, y1_, x2_, y2_ = int(x1_), int(y1_), int(x2_), int(y2_)
+        #     start_point = (x1_, y1_)
+        #     end_point = (x2_, y2_)
+        #     cv2.rectangle(image, start_point, end_point, (0, 255, 0), 2)
+        bounding_boxes = bounding_boxes[0].numpy()
+        # bounding_boxes /= (1080 / image.shape[1])
+        for x1_, y1_, x2_, y2_ in bounding_boxes:
+            x1_, y1_, x2_, y2_ = int(x1_), int(y1_), int(x2_), int(y2_)
+            start_point = (x1_, y1_)
+            end_point = (x2_, y2_)
+            cv2.rectangle(image, start_point, end_point, (0, 255, 0), 2)
+        plt.imshow(image)
+        plt.show()
