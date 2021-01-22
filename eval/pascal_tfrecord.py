@@ -127,4 +127,4 @@ class Evaluate(tfk.callbacks.Callback):
 
         if self.model_checkpoint_dir:
             save_dir = self.model_checkpoint_dir.format(epoch=epoch, val_loss=logs['val_loss'], loss=logs['loss'])
-            self.model.save(save_dir, save_format="tf")
+            self.active_model.save(save_dir, save_format="tf")
