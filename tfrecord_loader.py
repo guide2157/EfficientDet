@@ -18,7 +18,7 @@ class CTCGenerator:
         else:
             self.anchor_parameters = anchor_parameters
         self.anchors = anchors_for_shape((image_size, image_size), anchor_params=self.anchor_parameters,
-                                         pyramid_levels=[3, 4, 5])
+                                         pyramid_levels=[2, 3, 4, 5])
         self.image_size = image_size
         self.anchors_area = self.area(self.anchors)
 
@@ -35,14 +35,6 @@ class CTCGenerator:
 
     @tf.function
     def compute_overlap(self, boxlist1, boxlist2):
-        """
-            Args
-                a: (N, 4) ndarray of float
-                b: (K, 4) ndarray of float
-
-            Returns
-                overlaps: (N, K) ndarray of overlap between boxes and query_boxes
-            """
         y_min1, x_min1, y_max1, x_max1 = tf.split(
             boxlist1, num_or_size_splits=4, axis=1)
         y_min2, x_min2, y_max2, x_max2 = tf.split(
@@ -53,13 +45,18 @@ class CTCGenerator:
         all_pairs_min_xmax = tf.minimum(x_max1, tf.transpose(x_max2))
         all_pairs_max_xmin = tf.maximum(x_min1, tf.transpose(x_min2))
         intersect_widths = tf.maximum(0.0, all_pairs_min_xmax - all_pairs_max_xmin)
-        return intersect_heights * intersect_widths
+        overlaps = intersect_heights * intersect_widths
+        boxlist1_area = self.area(boxlist1)[..., tf.newaxis]
+        boxlist2_area = self.area(boxlist2)[tf.newaxis, ...]
+        divisor = - overlaps + boxlist1_area +boxlist2_area
+        return overlaps / divisor
 
     @tf.function
     def compute_gt_annotations(self, bounding_boxes,
-                               negative_overlap=0.3,
-                               positive_overlap=0.85):
-        overlaps = self.compute_overlap(self.anchors, bounding_boxes) / self.anchors_area[..., tf.newaxis]
+                               negative_overlap=0.4,
+                               positive_overlap=0.5):
+        # overlaps = tf.py_function(self.compute_overlap, inp=[bounding_boxes], Tout=tf.float32)
+        overlaps = self.compute_overlap(self.anchors, bounding_boxes)
         argmax_overlaps_inds = tf.cast(tf.math.argmax(overlaps, axis=-1), tf.int32)
         max_overlaps = tf.gather_nd(overlaps, tf.concat(
             [tf.range(overlaps.shape[0])[:, tf.newaxis], argmax_overlaps_inds[:, tf.newaxis]], axis=-1))
@@ -117,10 +114,9 @@ class CTCGenerator:
 
     @tf.function
     def compute_targets(self, bounding_boxes, labels):
-        if tf.shape(bounding_boxes)[0] > 0:
-            return self.compute_regression(bounding_boxes, labels)
-        else:
-            return self.return_empty_regression()
+        return tf.cond(tf.shape(bounding_boxes)[0] > 0,
+                       lambda: self.compute_regression(bounding_boxes, labels),
+                       self.return_empty_regression)
 
     @tf.function
     def read_tfrecord(self, example):
@@ -173,13 +169,13 @@ if __name__ == '__main__':
     paths = [
         "/Users/kittipodpungcharoenkul/Downloads/CTC_data/bounding_box/bbox_tfrecord/output-seed42-val-23.tfrec"]
     ANCHORS_PARAMETERS = AnchorParameters(
-        strides=(12, 16, 32),
-        ratios=[0.5, 1, 2],
-        sizes=(16, 32, 64),
+        ratios=(0.5, 1., 2.),
+        sizes=(25, 45, 85, 128),
+        strides=(4, 8, 16, 32),
         scales=[1])
     # ANCHORS_PARAMETERS = None
     ctc_generator = CTCGenerator(num_classes=1, image_size=512, batch_size=1, anchor_parameters=ANCHORS_PARAMETERS,
-                                 test=True)
+                                 )
     train_generator = ctc_generator.generate_dataset(paths)
     anchors = ctc_generator.anchors
     # for image, overlap in train_generator:
@@ -192,14 +188,14 @@ if __name__ == '__main__':
 
     # for data in train_generator.take(15):
     #     test = data
-    for image, bounding_boxes, labels in train_generator:
-        # for image, classification, regression in train_generator:
-        #     classification = classification.numpy()[0]
-        #     regression = regression.numpy()[0]
+    # for image, bounding_boxes, labels in train_generator:
+    for image, classification, regression in train_generator:
+        classification = classification.numpy()[0]
+        regression = regression.numpy()[0]
 
-        targets = ctc_generator.compute_targets(bounding_boxes[0], labels[0])
-        regression, classification, = targets
-        classification, regression = classification.numpy(), regression.numpy()
+        # targets = ctc_generator.compute_targets(bounding_boxes[0], labels[0])
+        # regression, classification, = targets
+        # classification, regression = classification.numpy(), regression.numpy()
         image = image.numpy()[0]
         #
         valid_ids = np.array(np.where(regression[:, -1] == 1)).flatten()
@@ -225,11 +221,11 @@ if __name__ == '__main__':
             start_point = (x1_, y1_)
             end_point = (x2_, y2_)
             cv2.rectangle(image, start_point, end_point, (0, 255, 0), 2)
-        bounding_boxes = bounding_boxes[0].numpy()
-        for x1_, y1_, x2_, y2_ in bounding_boxes:
-            x1_, y1_, x2_, y2_ = int(x1_), int(y1_), int(x2_), int(y2_)
-            start_point = (x1_, y1_)
-            end_point = (x2_, y2_)
-            cv2.rectangle(image, start_point, end_point, (0, 0, 255), 2)
+        # bounding_boxes = bounding_boxes[0].numpy()
+        # for x1_, y1_, x2_, y2_ in bounding_boxes:
+        #     x1_, y1_, x2_, y2_ = int(x1_), int(y1_), int(x2_), int(y2_)
+        #     start_point = (x1_, y1_)
+        #     end_point = (x2_, y2_)
+        #     cv2.rectangle(image, start_point, end_point, (0, 0, 255), 2)
         plt.imshow(image)
         plt.show()
