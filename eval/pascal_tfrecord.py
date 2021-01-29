@@ -7,7 +7,7 @@ from map_metric.MetricBuilder import MeanAveragePrecision2d
 tfk = tf.keras
 
 
-def _get_detections(generator, model):
+def _get_detections(generator, model, score_threshold=0.05):
     """
     Get the detections from the model using the generator.
 
@@ -21,7 +21,9 @@ def _get_detections(generator, model):
     """
     detections = []
     truths = []
-    for image, bounding_boxes, labels in generator:
+    for idx, (image, bounding_boxes, labels) in enumerate(generator):
+        if idx == 50:
+            break
         boxes, scores, pred_labels = model.predict(image)
         current_detection = np.concatenate(
             (boxes, np.expand_dims(pred_labels, axis=-1), np.expand_dims(scores, axis=-1)), axis=-1)
@@ -126,5 +128,5 @@ class Evaluate(tfk.callbacks.Callback):
             print('mAP: {:.4f}'.format(self.mean_ap))
 
         if self.model_checkpoint_dir:
-            save_dir = self.model_checkpoint_dir.format(epoch=epoch, val_loss=logs['val_loss'], loss=logs['loss'])
+            save_dir = self.model_checkpoint_dir.format(epoch=epoch, mAP=logs['mAP'], loss=logs['loss'])
             self.active_model.save(save_dir, save_format="tf")
